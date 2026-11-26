@@ -30,6 +30,7 @@ function empty() {
     ricette: [],
     eventi: [],     // coda sync: { id, tipo, ts, dati, inviato }
     contatori: {},  // prefisso+data -> progressivo
+    inCorso: [],    // produzioni aperte: { id, ricettaId, avviata, voci: [{ lottoId, ts }] }
     impostazioni: { negozio: '', operatore: '', webhookUrl: '', webhookToken: '' },
   };
 }
@@ -173,7 +174,7 @@ function prossimoCodice(prefisso, dataIso) {
   return `${k}-${String(db.contatori[k]).padStart(2, '0')}`;
 }
 
-export function registraProduzione({ ricetta, componenti, quantita, unita, dataProduzione, scadenza, note }) {
+export function registraProduzione({ ricetta, componenti, quantita, unita, dataProduzione, scadenza, note, avviata }) {
   const comp = componenti.map((c) => ({ ...c, lotto: getLotto(c.lottoId) }));
   const allergeni = new Set(ricetta.ingredienti.flatMap((i) => i.allergeni || []));
   comp.forEach((c) => (c.lotto?.allergeni || []).forEach((a) => allergeni.add(a)));
@@ -194,6 +195,7 @@ export function registraProduzione({ ricetta, componenti, quantita, unita, dataP
     scadenza,
     quantita, unita,
     note,
+    avviata: avviata || '',
     allergeni: ALLERGENI.filter((a) => allergeni.has(a)),
     ingredientiEtichetta: ricetta.ingredienti.map((i) => ({ nome: i.nome, allergeni: i.allergeni || [] })),
     origine: origini[0] || null,
@@ -203,6 +205,83 @@ export function registraProduzione({ ricetta, componenti, quantita, unita, dataP
   evento('produzione', lotto);
   save();
   return lotto;
+}
+
+// ---------- Produzioni in corso ----------
+const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const PAROLE_VUOTE = new Set(['alla', 'allo', 'alle', 'agli', 'della', 'dello', 'delle', 'degli', 'tipo', 'fresco', 'fresca', 'intero', 'intera']);
+
+/** True se il lotto può essere l'ingrediente (stesso nome o una parola significativa in comune). */
+export function lottoCorrispondeA(ingrediente, lotto) {
+  const n = norm(lotto.nome);
+  if (n === norm(ingrediente)) return true;
+  // Un semilavorato fatto in negozio (es. ragù) corrisponde solo per nome esatto:
+  // "Lasagne alla bolognese" non deve passare per "Ragù alla bolognese".
+  if (lotto.tipo === 'produzione') return false;
+  return norm(ingrediente).split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !PAROLE_VUOTE.has(w)).some((w) => n.includes(w));
+}
+
+/** Associa ogni lotto scansionato all'ingrediente della ricetta (serve per l'etichetta). */
+export function associaIngredienti(ricetta, lottoIds) {
+  const usati = new Set();
+  return lottoIds.map((lottoId) => {
+    const l = getLotto(lottoId);
+    const candidati = (ricetta.ingredienti || []).filter((i) => l && lottoCorrispondeA(i.nome, l));
+    const ing = candidati.find((i) => !usati.has(i.nome)) || candidati[0];
+    if (ing) usati.add(ing.nome);
+    return { ingrediente: ing?.nome || l?.nome || lottoId, lottoId };
+  });
+}
+
+export function getProduzione(id) { return db.inCorso.find((p) => p.id === id); }
+
+export function avviaProduzione(ricettaId) {
+  const p = { id: uid('PRC'), ricettaId, avviata: new Date().toISOString(), operatore: db.impostazioni.operatore, voci: [] };
+  db.inCorso.push(p);
+  save();
+  return p;
+}
+
+/** @returns {'aggiunto'|'gia'} */
+export function aggiungiAProduzione(id, lottoId) {
+  const p = getProduzione(id);
+  if (!p) throw new Error('Produzione non trovata');
+  if (p.voci.some((v) => v.lottoId === lottoId)) return 'gia';
+  p.voci.push({ lottoId, ts: new Date().toISOString() });
+  save();
+  return 'aggiunto';
+}
+
+export function rimuoviDaProduzione(id, lottoId) {
+  const p = getProduzione(id);
+  if (!p) return;
+  p.voci = p.voci.filter((v) => v.lottoId !== lottoId);
+  save();
+}
+
+export function annullaProduzione(id) {
+  db.inCorso = db.inCorso.filter((p) => p.id !== id);
+  save();
+}
+
+/** Ingredienti obbligatori della ricetta senza un lotto scansionato. */
+export function ingredientiMancanti(id) {
+  const p = getProduzione(id);
+  const r = p && db.ricette.find((x) => x.id === p.ricettaId);
+  if (!r) return [];
+  const assegnati = new Set(associaIngredienti(r, p.voci.map((v) => v.lottoId)).map((c) => c.ingrediente));
+  return r.ingredienti.filter((i) => i.obbligatorio && !assegnati.has(i.nome)).map((i) => i.nome);
+}
+
+/** Chiude la produzione: nasce il lotto interno (es. LAS-261126-02). */
+export function completaProduzione(id, { quantita, unita, scadenza, note, dataProduzione = oggiIso() }) {
+  const p = getProduzione(id);
+  if (!p) throw new Error('Produzione non trovata');
+  const ricetta = db.ricette.find((x) => x.id === p.ricettaId);
+  if (!ricetta) throw new Error('Ricetta non trovata');
+  const componenti = associaIngredienti(ricetta, p.voci.map((v) => v.lottoId));
+  db.inCorso = db.inCorso.filter((x) => x.id !== id);
+  return registraProduzione({ ricetta, componenti, quantita, unita, dataProduzione, scadenza, note, avviata: p.avviata });
 }
 
 export function cambiaStatoLotto(id, stato, motivo = '') {

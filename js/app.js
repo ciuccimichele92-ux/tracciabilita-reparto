@@ -107,6 +107,8 @@ async function riconosciProdotto(b, form) {
   if (!chips.some((c) => c.classList.contains('on'))) {
     chips.forEach((c) => c.classList.toggle('on', p.allergeni.includes(c.dataset.val)));
     b.allergeni = p.allergeni;
+    const sum = $('#allergeni-sum');
+    if (sum) sum.textContent = p.allergeni.length ? p.allergeni.join(', ') : 'nessuno indicato';
   }
   stato.innerHTML = `<span class="badge ok">✓ ${esc(p.fonte)}</span> <span class="muted">controlla e salva</span>`;
 }
@@ -139,12 +141,10 @@ function renderRicevi() {
   const b = bozzaRicevimento;
   const cat = S.CATEGORIE[b.categoria] || S.CATEGORIE.altro;
   const duplicati = b.codiceLotto ? S.trovaLotti(b.codiceLotto, b.parsed) : [];
+  const riepilogoAllergeni = (lista) => (lista.length ? lista.join(', ') : 'nessuno indicato');
   view.innerHTML = `
+    <button type="button" class="back" id="annulla">✕ Annulla</button>
     <h1>Nuovo arrivo</h1>
-    ${b.raw ? `<div class="card"><div class="muted" style="font-size:.8rem">Codice letto (${esc(b.parsed.type.toUpperCase())})</div>
-      <dl class="kv" style="margin-top:.4rem">${b.parsed.elements.map((e) => `<dt>${esc(e.label)}</dt><dd>${esc(e.value)}</dd>`).join('') || `<dt>Testo</dt><dd>${esc(b.raw)}</dd>`}</dl>
-      ${b.parsed.errors.length ? `<div class="alert warn">${b.parsed.errors.map(esc).join('<br>')}</div>` : ''}
-    </div>` : ''}
     ${duplicati.length ? `<div class="alert warn">Attenzione: questo lotto risulta già registrato (${duplicati.map((d) => esc(d.id)).join(', ')}). Salva solo se è un collo in più.</div>` : ''}
     <form id="f" class="card" autocomplete="off">
       <label>Prodotto *<input name="nome" required value="${esc(b.nome)}" placeholder="es. Carne bovina – fesa" list="prodotti-noti"></label>
@@ -153,18 +153,14 @@ function renderRicevi() {
       ${b.gtin && !b.codiceLotto ? `<div class="alert warn" style="font-size:.85rem">Questo codice a barre identifica solo il prodotto: lotto e scadenza sono stampati sulla confezione. Se c’è, scansiona l’etichetta del cartone.</div>` : ''}
       <datalist id="prodotti-noti">${Object.values(S.getDb().prodotti).map((p) => `<option value="${esc(p.nome)}">`).join('')}</datalist>
       <div class="grid2">
-        <label>Fornitore<input name="fornitore" value="${esc(b.fornitore)}"></label>
-        <label>Categoria<select name="categoria">${Object.entries(S.CATEGORIE).map(([k, c]) => `<option value="${k}" ${k === b.categoria ? 'selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
         <label>Lotto fornitore *<input name="codiceLotto" required value="${esc(b.codiceLotto)}"></label>
         <label>Scadenza / TMC<input type="date" name="scadenza" value="${esc(b.scadenza)}"></label>
-        <label>Peso netto (kg)<input name="pesoKg" inputmode="decimal" value="${esc(b.pesoKg)}"></label>
+        <label>Temperatura (°C)${cat.tMax !== null ? ` <small>max ${cat.tMax}°</small>` : ''}<input name="temperatura" inputmode="decimal" value="${esc(b.temperatura ?? '')}"></label>
+        <label>Categoria<select name="categoria">${Object.entries(S.CATEGORIE).map(([k, c]) => `<option value="${k}" ${k === b.categoria ? 'selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>
+        <label>Fornitore<input name="fornitore" value="${esc(b.fornitore)}"></label>
         <label>N° DDT<input name="ddt" value="${esc(b.ddt || '')}"></label>
-        <label>Data arrivo<input type="date" name="dataArrivo" value="${esc(b.dataArrivo || S.oggiIso())}"></label>
-        <label>Temperatura al ricevimento (°C)${cat.tMax !== null ? ` <small>max ${cat.tMax}°</small>` : ''}<input name="temperatura" inputmode="decimal" value="${esc(b.temperatura ?? '')}"></label>
       </div>
       <div id="temp-alert"></div>
-      <div class="muted" style="font-size:.85rem">Allergeni del prodotto</div>
-      ${chipsAllergeni(b.allergeni)}
       <fieldset id="origine" style="border:1px solid var(--line);border-radius:12px;padding:.7rem;margin:0 0 .8rem" ${cat.origine || cat.origineBovina ? '' : 'hidden'}>
         <legend class="muted" style="font-size:.85rem;padding:0 .3rem">Origine carne (Reg. CE 1760/2000 – UE 1337/2013)</legend>
         <div class="grid2">
@@ -177,15 +173,31 @@ function renderRicevi() {
       </fieldset>
       <label class="check"><input type="checkbox" name="integro" checked> Imballo integro ed etichetta leggibile</label>
       <label class="check"><input type="checkbox" name="conforme" checked> Merce conforme (accettata)</label>
-      <label>Note<textarea name="note" placeholder="es. non conformità, azioni correttive">${esc(b.note || '')}</textarea></label>
-      <div class="row">
-        <button type="button" class="btn btn-ghost" id="annulla">Annulla</button>
-        <button class="btn">💾 Salva arrivo</button>
+      <details class="more" id="allergeni-box">
+        <summary>Allergeni: <span id="allergeni-sum" style="margin-left:.3rem;color:var(--ink)">${esc(riepilogoAllergeni(b.allergeni))}</span></summary>
+        ${chipsAllergeni(b.allergeni)}
+      </details>
+      <details class="more">
+        <summary>Altri dettagli</summary>
+        <div class="grid2">
+          <label>Peso netto (kg)<input name="pesoKg" inputmode="decimal" value="${esc(b.pesoKg)}"></label>
+          <label>Data arrivo<input type="date" name="dataArrivo" value="${esc(b.dataArrivo || S.oggiIso())}"></label>
+        </div>
+        <label>Note<textarea name="note" placeholder="es. non conformità, azioni correttive">${esc(b.note || '')}</textarea></label>
+        ${b.raw ? `<div class="muted" style="font-size:.8rem">Codice letto (${esc(b.parsed.type.toUpperCase())})</div>
+          <dl class="kv" style="margin-top:.4rem;font-size:.82rem">${b.parsed.elements.map((e) => `<dt>${esc(e.label)}</dt><dd>${esc(e.value)}</dd>`).join('') || `<dt>Testo</dt><dd>${esc(b.raw)}</dd>`}</dl>
+          ${b.parsed.errors.length ? `<div class="alert warn">${b.parsed.errors.map(esc).join('<br>')}</div>` : ''}` : ''}
+      </details>
+      <div class="actionbar">
+        <button class="btn">💾 Salva</button>
+        <button type="button" class="btn btn-ghost" id="salva-scan">📷 Salva e prossimo</button>
       </div>
-      <button type="button" class="btn btn-ghost btn-block" id="salva-scan" style="margin-top:.6rem">Salva e scansiona il prossimo</button>
     </form>`;
   const form = $('#f');
   bindChips(form);
+  $$('#allergeni-box .chip', form).forEach((c) => c.addEventListener('click', () => {
+    $('#allergeni-sum').textContent = riepilogoAllergeni(leggiChips($('#allergeni-box', form)));
+  }));
 
   const checkTemp = () => {
     const c = S.CATEGORIE[form.categoria.value];
@@ -317,7 +329,7 @@ function renderLotto(id) {
   const monte = S.alberoMonte(id), valle = S.alberoValle(id);
   const kv = (k, v) => (v || v === 0 ? `<dt>${k}</dt><dd>${v}</dd>` : '');
   view.innerHTML = `
-    <a href="#lotti" class="muted" style="text-decoration:none">← Lotti</a>
+    <a href="#lotti" class="back">‹ Lotti</a>
     <h1>${esc(l.nome)} ${badgeScadenza(l)}</h1>
     <div class="card"><dl class="kv">
       ${kv('ID interno', `<code>${esc(l.id)}</code>`)}
@@ -363,141 +375,241 @@ function renderLotto(id) {
 }
 
 // =====================================================================
-// PRODUZIONE
+// PRODUZIONE: si sceglie la voce, si scansiona, si chiude con "Preparazione completata"
 // =====================================================================
-let bozzaProd = null; // { ricettaId, scelte: { [ingrediente]: { lottoId, quantita } } }
+const oraIt = (iso) => (iso ? new Date(iso).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '');
+const ricettaDi = (p) => S.getDb().ricette.find((r) => r.id === p.ricettaId);
 
-function suggeriti(ingrediente, lotti) {
-  const vuote = new Set(['alla', 'allo', 'alle', 'agli', 'della', 'dello', 'delle', 'degli', 'tipo', 'fresco', 'fresca', 'intero']);
-  const parole = norm(ingrediente).split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !vuote.has(w));
-  return lotti.filter((l) => {
-    const n = norm(l.nome);
-    return norm(l.nome) === norm(ingrediente) || parole.some((w) => n.includes(w));
-  });
+/** Pannello che sale dal basso (sopra la tab bar). Restituisce l'elemento; chiudi con .remove(). */
+function apriPannello(html) {
+  const el = document.createElement('div');
+  el.className = 'sheet-backdrop';
+  el.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">${html}</div>`;
+  el.addEventListener('click', (e) => { if (e.target === el) el.remove(); });
+  document.body.appendChild(el);
+  return el;
 }
 
-function renderProduci(ricettaId) {
+function renderProduci() {
   const db = S.getDb();
-  if (!ricettaId) {
-    view.innerHTML = `
-      <h1>Nuova produzione</h1>
-      <p class="muted">Scegli cosa stai preparando:</p>
-      ${db.ricette.length ? db.ricette.map((r) => `
-        <a class="card" href="#produci/${encodeURIComponent(r.id)}" style="display:block;text-decoration:none">
-          <div style="font-weight:700;font-size:1.05rem">${esc(r.nome)}</div>
-          <div class="muted" style="font-size:.85rem">${r.ingredienti.length} ingredienti · scadenza ${r.shelfLifeGiorni} gg · lotto ${esc(r.prefisso)}-AAMMGG-NN</div>
-        </a>`).join('') : '<div class="empty">Nessuna ricetta. <a href="#ricette/nuova">Creane una</a></div>'}
-      <h2>Prodotte oggi</h2>
-      <div class="card">${(() => { const p = db.lotti.filter((l) => l.tipo === 'produzione' && l.dataProduzione === S.oggiIso()).reverse(); return p.length ? `<ul class="list">${p.map(rigaLotto).join('')}</ul>` : '<div class="empty">Nessuna produzione oggi</div>'; })()}</div>`;
-    return;
-  }
-  const r = db.ricette.find((x) => x.id === ricettaId);
-  if (!r) { go('#produci'); return; }
-  if (!bozzaProd || bozzaProd.ricettaId !== r.id) bozzaProd = { ricettaId: r.id, scelte: {} };
-  const aperti = S.lottiAperti();
-
-  // Pre-selezione FEFO: per ogni ingrediente il lotto suggerito con scadenza più vicina (non scaduto)
-  r.ingredienti.forEach((ing) => {
-    if (bozzaProd.scelte[ing.nome] === undefined) {
-      const s = suggeriti(ing.nome, aperti).find((l) => !isScaduto(l));
-      bozzaProd.scelte[ing.nome] = { lottoId: s?.id || '', quantita: '' };
-    }
-  });
-
-  const oggi = S.oggiIso();
+  const inCorso = db.inCorso;
+  const oggi = db.lotti.filter((l) => l.tipo === 'produzione' && l.dataProduzione === S.oggiIso()).reverse();
   view.innerHTML = `
-    <a href="#produci" class="muted" style="text-decoration:none">← Ricette</a>
-    <h1>${esc(r.nome)}</h1>
-    <p class="muted" style="font-size:.88rem">Per ogni ingrediente è proposto il lotto aperto che scade prima (FEFO). Puoi cambiarlo o scansionare il collo che stai usando davvero.</p>
-    <form id="f">
-      ${r.ingredienti.map((ing, i) => {
-        const scelta = bozzaProd.scelte[ing.nome];
-        const sugg = suggeriti(ing.nome, aperti);
-        const altri = aperti.filter((l) => !sugg.includes(l));
-        const opt = (l) => `<option value="${esc(l.id)}" ${scelta.lottoId === l.id ? 'selected' : ''} ${isScaduto(l) ? 'disabled' : ''}>${esc(l.nome)} · ${esc(l.codiceLotto || l.id)} · scad. ${dataIt(l.scadenza)}${isScaduto(l) ? ' (SCADUTO)' : ''}</option>`;
-        const sel = S.getLotto(scelta.lottoId);
-        return `<div class="ingr-row ${scelta.lottoId ? 'done' : ing.obbligatorio ? 'missing' : ''}" data-i="${i}">
-          <div class="head"><b>${esc(ing.nome)}</b> <span>${(ing.allergeni || []).map((a) => `<span class="badge warn">${esc(a)}</span>`).join(' ')} ${ing.obbligatorio ? '' : '<span class="badge neutral">lotto facoltativo</span>'}</span></div>
-          <div class="row">
-            <select data-ing="${esc(ing.nome)}">
-              <option value="">— ${ing.obbligatorio ? 'scegli il lotto' : 'nessun lotto'} —</option>
-              ${sugg.length ? `<optgroup label="Suggeriti">${sugg.map(opt).join('')}</optgroup>` : ''}
-              ${altri.length ? `<optgroup label="Altri lotti aperti">${altri.map(opt).join('')}</optgroup>` : ''}
-            </select>
-            <button type="button" class="btn btn-ghost" data-scan="${esc(ing.nome)}" style="flex:0 0 auto" aria-label="Scansiona">📷</button>
-          </div>
-          ${sel ? `<div class="muted" style="font-size:.8rem;margin-top:.35rem">${badgeScadenza(sel)} ${sel.origine ? 'Origine: ' + origineHtml(sel.origine) : ''}</div>` : ''}
-          <input data-qta="${esc(ing.nome)}" placeholder="Quantità usata (facoltativa, es. 3 kg)" value="${esc(scelta.quantita)}" style="margin-top:.4rem">
-        </div>`;
-      }).join('')}
-      <div class="card">
-        <div class="grid2">
-          <label>Quantità prodotta *<input name="quantita" inputmode="decimal" required value="${esc(bozzaProd.quantita || '')}"></label>
-          <label>Unità<input name="unita" value="${esc(bozzaProd.unita || r.unita || 'kg')}"></label>
-          <label>Data produzione<input type="date" name="dataProduzione" value="${esc(bozzaProd.dataProduzione || oggi)}"></label>
-          <label>Da consumarsi entro<input type="date" name="scadenza" value="${esc(bozzaProd.scadenza || S.addGiorni(oggi, r.shelfLifeGiorni))}"></label>
-        </div>
-        <label>Note<input name="note" value="${esc(bozzaProd.note || '')}" placeholder="es. abbattuto a +3 °C in 90 min"></label>
-        <div id="err"></div>
-        <button class="btn btn-block">✅ Registra produzione e stampa etichette</button>
-      </div>
-    </form>`;
-
-  const form = $('#f');
-  const salvaBozza = () => {
-    $$('select[data-ing]', form).forEach((s) => { bozzaProd.scelte[s.dataset.ing].lottoId = s.value; });
-    $$('input[data-qta]', form).forEach((q) => { bozzaProd.scelte[q.dataset.qta].quantita = q.value; });
-    ['quantita', 'unita', 'dataProduzione', 'scadenza', 'note'].forEach((k) => { bozzaProd[k] = form[k].value; });
-  };
-  form.dataProduzione.onchange = () => { form.scadenza.value = S.addGiorni(form.dataProduzione.value, r.shelfLifeGiorni); };
-  $$('select[data-ing]', form).forEach((s) => { s.onchange = () => { salvaBozza(); render(); }; });
-  $$('[data-scan]', form).forEach((b) => {
-    b.onclick = async () => {
-      salvaBozza();
-      const res = await scanBarcode({ titolo: `Scansiona: ${b.dataset.scan}` });
-      if (!res) return;
-      assegnaScanAIngrediente(b.dataset.scan, res.rawValue);
+    <h1>Produzione</h1>
+    ${inCorso.length ? `<h2 style="margin-top:0">In corso</h2>
+      ${inCorso.map((p) => `<a class="card card-link in-corso" href="#produzione/${encodeURIComponent(p.id)}">
+        <span class="grow"><div class="title">🍳 ${esc(ricettaDi(p)?.nome || 'Ricetta eliminata')}</div>
+        <div class="sub">iniziata alle ${oraIt(p.avviata)} · ${p.voci.length} prodott${p.voci.length === 1 ? 'o' : 'i'} scansionat${p.voci.length === 1 ? 'o' : 'i'}</div></span>
+        <span class="btn btn-small">Riprendi</span></a>`).join('')}` : ''}
+    <h2 ${inCorso.length ? '' : 'style="margin-top:0"'}>Cosa prepari?</h2>
+    ${db.ricette.length ? `<div class="voci">${db.ricette.map((r) =>
+      `<button class="voce" data-ricetta="${esc(r.id)}">${esc(r.nome)}</button>`).join('')}</div>`
+      : '<div class="empty">Nessuna voce. <a href="#ricette/nuova">Creane una in Ricette</a></div>'}
+    <h2>Prodotte oggi</h2>
+    <div class="card">${oggi.length ? `<ul class="list">${oggi.map(rigaLotto).join('')}</ul>` : '<div class="empty">Nessuna produzione completata oggi</div>'}</div>`;
+  $$('[data-ricetta]').forEach((b) => {
+    b.onclick = () => {
+      const p = S.avviaProduzione(b.dataset.ricetta);
+      scanAllApertura = p.id;
+      go(`#produzione/${encodeURIComponent(p.id)}`);
     };
   });
-  form.onsubmit = (e) => {
-    e.preventDefault();
-    salvaBozza();
-    const mancanti = r.ingredienti.filter((i) => i.obbligatorio && !bozzaProd.scelte[i.nome].lottoId).map((i) => i.nome);
-    const scaduti = r.ingredienti.map((i) => S.getLotto(bozzaProd.scelte[i.nome].lottoId)).filter((l) => l && isScaduto(l));
-    if (scaduti.length) { $('#err').innerHTML = `<div class="alert bad">Lotti scaduti: ${scaduti.map((l) => esc(l.nome)).join(', ')}. Non si possono usare.</div>`; return; }
-    if (mancanti.length) { $('#err').innerHTML = `<div class="alert warn">Manca il lotto per: <b>${mancanti.map(esc).join(', ')}</b>.</div>`; return; }
-    if (!form.reportValidity()) return;
-    const lotto = S.registraProduzione({
-      ricetta: r,
-      componenti: r.ingredienti.filter((i) => bozzaProd.scelte[i.nome].lottoId).map((i) => ({ ingrediente: i.nome, ...bozzaProd.scelte[i.nome] })),
-      quantita: form.quantita.value, unita: form.unita.value,
-      dataProduzione: form.dataProduzione.value, scadenza: form.scadenza.value, note: form.note.value,
-    });
-    bozzaProd = null;
-    flush();
-    toast(`✅ Prodotto lotto ${lotto.id}`);
-    go(`#lotto/${encodeURIComponent(lotto.id)}`);
-    const copie = lotto.unita === 'teglie' || lotto.unita === 'pz' ? parseInt(lotto.quantita, 10) || 1 : 1;
-    if (confirm(`Stampare ${copie} etichett${copie === 1 ? 'a' : 'e'}?`)) stampa(etichettaHtml(lotto), Math.min(copie, 50));
-  };
 }
 
-function assegnaScanAIngrediente(ingrediente, raw) {
+let scanAllApertura = null; // apre subito la fotocamera quando si avvia una produzione
+
+function renderProduzione(id) {
+  const p = S.getProduzione(id);
+  if (!p) { go('#produci'); return; }
+  const r = ricettaDi(p);
+  const voci = p.voci.map((v) => S.getLotto(v.lottoId)).filter(Boolean);
+  view.innerHTML = `
+    <a href="#produci" class="back">‹ Produzione</a>
+    <h1 style="margin-bottom:.2rem">${esc(r?.nome || 'Ricetta eliminata')}</h1>
+    <p class="muted" style="margin:0 0 1rem;font-size:.88rem">In corso dalle ${oraIt(p.avviata)}. Puoi uscire e riprenderla quando vuoi.</p>
+    <button class="btn btn-scan" id="scan">📷 Scansiona prodotto</button>
+    <button class="btn btn-ghost btn-block" id="senza-codice" style="margin-top:.6rem">＋ Aggiungi senza codice</button>
+    <h2>Prodotti usati (${voci.length})</h2>
+    <div class="card">${voci.length ? `<ul class="list">${voci.map((l) => `<li><div class="item">
+        <span style="font-size:1.3rem">${l.tipo === 'produzione' ? '🍳' : '📦'}</span>
+        <span class="grow"><div class="title">${esc(l.nome)}</div>
+          <div class="sub">Lotto ${esc(l.codiceLotto || l.id)}</div>
+          <div style="margin-top:.3rem">${badgeScadenza(l)}</div></span>
+        <button class="icon-del" data-togli="${esc(l.id)}" aria-label="Togli ${esc(l.nome)}">✕</button>
+      </div></li>`).join('')}</ul>` : '<div class="empty">Scansiona i prodotti che stai usando: carne, sfoglia, latte…</div>'}</div>
+    <button class="btn btn-ghost btn-block" id="annulla-prod" style="margin-top:.4rem">Annulla produzione</button>
+    <div class="actionbar">
+      <button class="btn btn-block btn-ok" id="completa" ${voci.length ? '' : 'disabled'}>✅ Preparazione completata</button>
+    </div>`;
+
+  $('#scan').onclick = () => scansioneContinua(id);
+  $('#senza-codice').onclick = () => scegliSenzaCodice(id);
+  $$('[data-togli]').forEach((b) => { b.onclick = () => { S.rimuoviDaProduzione(id, b.dataset.togli); render(); }; });
+  $('#annulla-prod').onclick = () => {
+    if (confirm('Annullare questa produzione? Non verrà creato nessun lotto.')) { S.annullaProduzione(id); toast('Produzione annullata'); go('#produci'); }
+  };
+  $('#completa').onclick = () => completaPannello(id);
+
+  if (scanAllApertura === id) { scanAllApertura = null; scansioneContinua(id); }
+}
+
+/** Fotocamera in modalità continua: dopo ogni prodotto si riapre, finché non premi ✕. */
+async function scansioneContinua(id) {
+  for (;;) {
+    const p = S.getProduzione(id);
+    if (!p) return;
+    const n = p.voci.length;
+    const res = await scanBarcode({ titolo: `${ricettaDi(p)?.nome || ''} · ${n} prodott${n === 1 ? 'o' : 'i'} · ✕ per finire` });
+    if (!res) { render(); return; }
+    const ok = await aggiungiDaCodice(id, res.rawValue);
+    render();
+    if (ok === 'stop') return;
+    await new Promise((r) => setTimeout(r, 700)); // il tempo di leggere il messaggio
+  }
+}
+
+/** @returns {Promise<'ok'|'skip'|'stop'>} */
+async function aggiungiDaCodice(id, raw) {
   const parsed = parseBarcode(raw);
   const trovati = S.trovaLotti(raw, parsed);
   const aperti = trovati.filter((l) => l.stato === 'aperto');
-  // FEFO: tra i lotti aperti e non scaduti, quello che scade prima
-  const aperto = aperti.find((l) => !isScaduto(l)) || aperti[0] || trovati[0];
-  if (!aperto) { toast('Lotto non trovato: registralo prima in “Ricevi”.', 3500); return; }
-  if (aperto.stato !== 'aperto') { toast(`Il lotto è ${aperto.stato}: non utilizzabile.`, 3500); return; }
-  if (isScaduto(aperto)) { toast(`⛔ ${aperto.nome} lotto ${aperto.codiceLotto || aperto.id} è SCADUTO.`, 4000); return; }
-  bozzaProd.scelte[ingrediente].lottoId = aperto.id;
-  // Confezione singola senza lotto nel codice: se ci sono più lotti aperti lo diciamo
-  const solaConfezione = !parsed.fields.lotto && parsed.fields.gtin && aperti.length > 1;
-  toast(solaConfezione
-    ? `✓ ${ingrediente}: lotto ${aperto.codiceLotto} (scade prima). Ci sono ${aperti.length} lotti aperti: se sulla confezione c’è un altro lotto, cambialo.`
-    : `✓ ${ingrediente}: ${aperto.nome} · ${aperto.codiceLotto || aperto.id}`, solaConfezione ? 5000 : 2600);
-  render();
+  const lotto = aperti.find((l) => !isScaduto(l)) || aperti[0] || trovati[0];
+  if (!lotto) {
+    // Mai registrato in Ricevi: lo registriamo al volo, senza bloccare la produzione
+    const nuovo = await registraAlVolo(raw, parsed);
+    if (!nuovo) return 'stop';
+    return aggiungi(id, nuovo, parsed, [nuovo]);
+  }
+  if (lotto.stato !== 'aperto') { toast(`⛔ ${lotto.nome}: lotto ${lotto.stato}, non utilizzabile.`, 4000); return 'skip'; }
+  if (isScaduto(lotto)) { toast(`⛔ ${lotto.nome} lotto ${lotto.codiceLotto || lotto.id} è SCADUTO.`, 4000); return 'skip'; }
+  return aggiungi(id, lotto, parsed, aperti);
+}
+
+function aggiungi(id, lotto, parsed, aperti) {
+  const esito = S.aggiungiAProduzione(id, lotto.id);
+  if (esito === 'gia') { toast(`Già aggiunto: ${lotto.nome}`); return 'skip'; }
+  const ambiguo = !parsed.fields.lotto && parsed.fields.gtin && aperti.length > 1;
+  toast(ambiguo
+    ? `✓ ${lotto.nome} · lotto ${lotto.codiceLotto} (scade prima). Ci sono ${aperti.length} lotti aperti: se sulla confezione ne vedi un altro, cambialo.`
+    : `✓ ${lotto.nome} · lotto ${lotto.codiceLotto || lotto.id}`, ambiguo ? 5000 : 2200);
+  return 'ok';
+}
+
+/** Prodotto scansionato ma non ricevuto: chiede il lotto scritto sulla confezione e registra l'arrivo. */
+function registraAlVolo(raw, parsed) {
+  return new Promise(async (resolve) => {
+    const f = parsed.fields;
+    const noto = S.getProdotto(f.gtin);
+    const el = apriPannello(`
+      <h2 style="margin-top:0">Prodotto non ancora ricevuto</h2>
+      <p class="muted" style="font-size:.88rem;margin-top:0">Registralo ora: finisce tra gli arrivi di oggi e nella produzione.</p>
+      <form id="volo" autocomplete="off">
+        <label>Prodotto *<input name="nome" required value="${esc(noto?.nome || '')}" placeholder="${f.gtin ? 'cerco il nome…' : 'nome del prodotto'}"></label>
+        <div class="grid2">
+          <label>Lotto (sulla confezione) *<input name="lotto" required value="${esc(f.lotto || (parsed.type === 'testo' ? raw : ''))}"></label>
+          <label>Scadenza<input type="date" name="scadenza" value="${esc(f.scadenza || f.tmc || '')}"></label>
+        </div>
+        <label>Fornitore<input name="fornitore" value="${esc(noto?.fornitore || '')}"></label>
+        <div class="row"><button type="button" class="btn btn-ghost" id="no">Annulla</button><button class="btn">Registra e aggiungi</button></div>
+      </form>`);
+    const form = $('#volo', el);
+    let info = noto;
+    if (!noto && f.gtin) {
+      cercaProdotto(f.gtin).then((p) => {
+        info = p;
+        if (p && !form.nome.value) form.nome.value = p.nome;
+        if (p && !form.fornitore.value) form.fornitore.value = p.fornitore || '';
+        form.nome.placeholder = 'nome del prodotto';
+      });
+    }
+    (form.lotto.value ? form.scadenza : form.lotto).focus();
+    $('#no', el).onclick = () => { el.remove(); resolve(null); };
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      const lotto = S.registraRicevimento({
+        gtin: f.gtin || '', codiceBarre: raw, nome: form.nome.value.trim(), fornitore: form.fornitore.value.trim(),
+        categoria: info?.categoria || 'altro', allergeni: info?.allergeni || [],
+        codiceLotto: form.lotto.value.trim(), scadenza: form.scadenza.value, dataArrivo: S.oggiIso(),
+        conforme: true, stato: 'aperto', note: 'Registrato durante la produzione',
+      });
+      flush();
+      el.remove();
+      resolve(lotto);
+    };
+  });
+}
+
+function scegliSenzaCodice(id) {
+  const p = S.getProduzione(id);
+  const r = ricettaDi(p);
+  const presi = new Set(p.voci.map((v) => v.lottoId));
+  // Esclusi: già aggiunti, scaduti e lotti della stessa voce (le lasagne non contengono lasagne)
+  const aperti = S.lottiAperti().filter((l) => !presi.has(l.id) && !isScaduto(l) && l.ricettaId !== p.ricettaId);
+  // In cima i lotti che corrispondono agli ingredienti della ricetta ancora mancanti
+  const mancanti = S.ingredientiMancanti(id);
+  const rilevanti = (l) => (r?.ingredienti || []).some((i) => S.lottoCorrispondeA(i.nome, l));
+  const ordinati = [...aperti.filter(rilevanti), ...aperti.filter((l) => !rilevanti(l))];
+  const el = apriPannello(`
+    <h2 style="margin-top:0">Aggiungi senza codice</h2>
+    <input id="cerca-lotto" placeholder="Cerca prodotto o lotto…" style="margin-bottom:.6rem">
+    <ul class="list sheet-list">${ordinati.map((l) => `<li><button class="item pick" data-id="${esc(l.id)}" data-q="${esc(norm(`${l.nome} ${l.codiceLotto} ${l.id}`))}">
+      <span class="grow"><div class="title">${esc(l.nome)}${rilevanti(l) ? ' <span class="badge ok">ricetta</span>' : ''}</div>
+      <div class="sub">Lotto ${esc(l.codiceLotto || l.id)} · scad. ${dataIt(l.scadenza)}</div></span></button></li>`).join('') || '<div class="empty">Nessun lotto aperto disponibile</div>'}</ul>
+    ${mancanti.length ? `<p class="muted" style="font-size:.82rem">Della ricetta mancano ancora: ${mancanti.map(esc).join(', ')}.</p>` : ''}
+    <button class="btn btn-ghost btn-block" id="chiudi">Chiudi</button>`);
+  $('#chiudi', el).onclick = () => el.remove();
+  $('#cerca-lotto', el).oninput = (e) => {
+    const q = norm(e.target.value);
+    $$('.pick', el).forEach((b) => { b.parentElement.hidden = q && !b.dataset.q.includes(q); });
+  };
+  $$('.pick', el).forEach((b) => {
+    b.onclick = () => {
+      const l = S.getLotto(b.dataset.id);
+      S.aggiungiAProduzione(id, l.id);
+      toast(`✓ ${l.nome} · lotto ${l.codiceLotto || l.id}`);
+      el.remove();
+      render();
+    };
+  });
+}
+
+function completaPannello(id) {
+  const p = S.getProduzione(id);
+  const r = ricettaDi(p);
+  if (!r) { toast('La ricetta di questa produzione non esiste più.'); return; }
+  const mancanti = S.ingredientiMancanti(id);
+  const oggi = S.oggiIso();
+  const el = apriPannello(`
+    <h2 style="margin-top:0">${esc(r.nome)}: preparazione completata</h2>
+    ${mancanti.length ? `<div class="alert warn">Non hai scansionato: <b>${mancanti.map(esc).join(', ')}</b>.<br>Se li hai usati, aggiungili prima di chiudere: senza lotto non sono tracciabili.</div>` : ''}
+    <form id="fine" autocomplete="off">
+      <div class="grid2">
+        <label>Quantità prodotta *<input name="quantita" inputmode="decimal" required></label>
+        <label>Unità<input name="unita" value="${esc(r.unita || 'kg')}"></label>
+      </div>
+      <label>Da consumarsi entro<input type="date" name="scadenza" value="${esc(S.addGiorni(oggi, r.shelfLifeGiorni))}"></label>
+      <label>Note<input name="note" placeholder="es. abbattuto a +3 °C in 90 min"></label>
+      <div class="row">
+        <button type="button" class="btn btn-ghost" id="indietro">${mancanti.length ? 'Aggiungo' : 'Indietro'}</button>
+        <button class="btn btn-ok">${mancanti.length ? 'Chiudi comunque' : 'Crea lotto'}</button>
+      </div>
+    </form>`);
+  const form = $('#fine', el);
+  form.quantita.focus();
+  $('#indietro', el).onclick = () => el.remove();
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const lotto = S.completaProduzione(id, {
+      quantita: form.quantita.value.trim(), unita: form.unita.value.trim(),
+      scadenza: form.scadenza.value, note: form.note.value.trim(),
+    });
+    el.remove();
+    flush();
+    toast(`✅ Nuovo lotto ${lotto.id}`, 3500);
+    go(`#lotto/${encodeURIComponent(lotto.id)}`);
+    const copie = ['teglie', 'pz', 'porzioni', 'vaschette'].includes(lotto.unita) ? parseInt(lotto.quantita, 10) || 1 : 1;
+    if (confirm(`Lotto ${lotto.id} creato. Stampare ${copie} etichett${copie === 1 ? 'a' : 'e'}?`)) stampa(etichettaHtml(lotto), Math.min(copie, 50));
+  };
 }
 
 // =====================================================================
@@ -616,7 +728,7 @@ function renderRicette(id) {
 
   const disegna = () => {
     view.innerHTML = `
-      <a href="#ricette" class="muted" style="text-decoration:none">← Ricette</a>
+      <a href="#ricette" class="back">‹ Ricette</a>
       <h1>${r.id ? 'Modifica ricetta' : 'Nuova ricetta'}</h1>
       <form id="f" class="card">
         <label>Nome *<input name="nome" required value="${esc(r.nome)}"></label>
@@ -749,7 +861,7 @@ function renderImpostazioni() {
 
 function renderCodiciProva() {
   view.innerHTML = `
-    <a href="#impostazioni" class="muted" style="text-decoration:none">← Impostazioni</a>
+    <a href="#impostazioni" class="back">‹ Impostazioni</a>
     <h1>Codici di prova</h1>
     <p class="muted" style="font-size:.88rem">Apri questa pagina sul PC e scansiona i codici col telefono da “Ricevi”. Sono GS1-128 come quelli sui cartoni dei fornitori (dati inventati). Per riconoscere il nome prodotto, prima carica il catalogo di prova dalle impostazioni.</p>
     ${codiciProva().map((c) => `<div class="sample">
@@ -767,12 +879,13 @@ function renderCodiciProva() {
 // =====================================================================
 function render() {
   const [route, param] = (location.hash.slice(1) || 'lotti').split('/').map(decodeURIComponent);
-  const tab = { lotto: 'lotti', 'codici-prova': 'impostazioni' }[route] || route;
+  const tab = { lotto: 'lotti', produzione: 'produci', 'codici-prova': 'impostazioni' }[route] || route;
   $$('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
   switch (route) {
     case 'ricevi': renderRicevi(); break;
     case 'lotto': renderLotto(param); break;
-    case 'produci': renderProduci(param); break;
+    case 'produci': renderProduci(); break;
+    case 'produzione': renderProduzione(param); break;
     case 'cerca': renderCerca(); break;
     case 'ricette': renderRicette(param); break;
     case 'impostazioni': renderImpostazioni(); break;
@@ -794,19 +907,27 @@ function aggiornaBadgeSync() {
 listenKeyboardWedge(({ rawValue }) => {
   const route = location.hash.slice(1).split('/')[0];
   if (route === 'ricevi') { bozzaRicevimento = bozzaDaScan({ rawValue }); render(); }
-  else if (route === 'produci' && bozzaProd) {
-    const r = S.getDb().ricette.find((x) => x.id === bozzaProd.ricettaId);
-    const libero = r?.ingredienti.find((i) => !bozzaProd.scelte[i.nome]?.lottoId);
-    const lotto = S.trovaLotti(rawValue, parseBarcode(rawValue))[0];
-    // Assegna all'ingrediente che corrisponde al prodotto scansionato, altrimenti al primo libero
-    const target = (lotto && r?.ingredienti.find((i) => suggeriti(i.nome, [lotto]).length)) || libero;
-    if (target) assegnaScanAIngrediente(target.nome, rawValue);
+  else if (route === 'produzione') {
+    const id = decodeURIComponent(location.hash.slice(1).split('/')[1] || '');
+    if (document.querySelector('.sheet-backdrop')) return; // un pannello è aperto
+    aggiungiDaCodice(id, rawValue).then(() => render());
   } else if (route === 'cerca') { cercaTesto = rawValue; render(); }
   else apriDaCodice(rawValue);
 });
 
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
+// Pallino sulla tab "Produci" con il numero di produzioni in corso
+function aggiornaBadgeProduci() {
+  const tab = $('.tabbar a[data-tab="produci"]');
+  const n = S.getDb().inCorso.length;
+  let c = $('.count', tab);
+  if (!n) { c?.remove(); return; }
+  if (!c) { c = document.createElement('span'); c.className = 'count'; tab.appendChild(c); }
+  c.textContent = n;
+}
 S.onChange(aggiornaBadgeSync);
+S.onChange(aggiornaBadgeProduci);
+aggiornaBadgeProduci();
 onSyncStatus(aggiornaBadgeSync);
 
 installaRicetteBase();

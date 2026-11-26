@@ -86,7 +86,7 @@ main { max-width: 760px; margin: 0 auto; padding: 1rem; outline: none; }
 input[type="date"] { -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%; text-align: left; }
 input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
-@media (max-width: 420px) { .grid2 { grid-template-columns: 1fr; } }
+@media (max-width: 340px) { .grid2 { grid-template-columns: 1fr; } }
 
 label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.7rem; }
 label > input, label > select, label > textarea { margin-top: 0.25rem; }
@@ -140,6 +140,66 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .tree .node.hit { border-color: var(--bad); background: var(--bad-bg); }
 
 .empty { text-align: center; color: var(--muted); padding: 2rem 1rem; }
+
+/* ---------- Navigazione e tocco ---------- */
+.back {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 0.9rem 0 0.6rem; margin: -0.3rem 0 0.4rem -0.4rem;
+  border-radius: 999px; text-decoration: none; color: var(--muted); font-weight: 600;
+  background: transparent; border: 0; font-family: inherit; font-size: 1rem; cursor: pointer;
+}
+.back:active { background: var(--line); }
+.chip { min-height: 44px; }
+.tree .node { min-height: 40px; display: inline-flex; align-items: center; }
+
+/* Barra azioni fissa sopra la tab bar (Salva, Preparazione completata) */
+.actionbar {
+  position: sticky; bottom: calc(66px + env(safe-area-inset-bottom)); z-index: 5;
+  display: flex; gap: 0.6rem; margin: 1rem -1rem 0; padding: 0.7rem 1rem;
+  background: var(--bg); border-top: 1px solid var(--line);
+}
+.actionbar > * { flex: 1 1 0; }
+.card .actionbar { margin: 1rem -1rem -1rem; background: var(--card); border-radius: 0 0 var(--radius) var(--radius); }
+.btn-ok { background: var(--ok); color: #fff; }
+@media (prefers-color-scheme: dark) { .btn-ok { background: #1f7a3a; } }
+
+details.more { border-top: 1px solid var(--line); margin: 0.4rem 0 0.8rem; padding-top: 0.4rem; }
+details.more summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--muted); font-weight: 600; }
+
+/* ---------- Produzione ---------- */
+.voci { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+.voce {
+  min-height: 84px; padding: 0.8rem; border-radius: var(--radius); border: 1px solid var(--line);
+  background: var(--card); color: var(--ink); font: inherit; font-weight: 700; font-size: 1.02rem; text-align: left; cursor: pointer;
+}
+.voce:active { border-color: var(--accent); }
+.card-link { display: flex; gap: 0.6rem; align-items: center; text-decoration: none; }
+.card-link .grow { flex: 1; min-width: 0; }
+.card-link .title { font-weight: 700; }
+.card-link .sub { font-size: 0.82rem; color: var(--muted); }
+.in-corso { border-color: var(--warn); background: var(--warn-bg); }
+.in-corso .title, .in-corso .sub { color: var(--warn); }
+.icon-del {
+  flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); font-size: 1rem; cursor: pointer;
+}
+.tabbar a { position: relative; }
+.tabbar .count {
+  position: absolute; top: 4px; left: 50%; margin-left: 8px; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px; background: var(--warn); color: #fff; font-size: 0.7rem; line-height: 18px; font-weight: 700;
+}
+
+/* Pannello dal basso */
+.sheet-backdrop { position: fixed; inset: 0; z-index: 60; background: #0008; display: flex; align-items: flex-end; justify-content: center; }
+.sheet {
+  width: 100%; max-width: 760px; max-height: 88vh; overflow-y: auto; background: var(--card); color: var(--ink);
+  border-radius: 18px 18px 0 0; padding: 1.1rem 1rem calc(1rem + env(safe-area-inset-bottom));
+}
+.sheet-list { max-height: 45vh; overflow-y: auto; margin-bottom: 0.6rem; }
+.sheet-list .pick { width: 100%; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; min-height: 56px; }
+
+/* Messaggi visibili anche sopra la fotocamera */
+#toast { z-index: 200; }
+body:has(.scanner) #toast { bottom: auto; top: calc(70px + env(safe-area-inset-top)); }
 
 #toast {
   position: fixed; left: 50%; bottom: calc(86px + env(safe-area-inset-bottom)); transform: translateX(-50%);
