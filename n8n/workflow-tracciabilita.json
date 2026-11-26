@@ -1,0 +1,71 @@
+{
+  "name": "Tracciabilità reparto → Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tracciabilita",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "5b7d2a51-1c8e-4a43-9e0c-6a1f0c000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "tracciabilita-app"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Trasforma gli eventi dell'app in righe per i fogli Google.\n// Se imposti TOKEN, deve coincidere con il \"Token\" nelle impostazioni dell'app.\nconst TOKEN = '';\n\nconst out = [];\nconst lista = (a) => (a || []).join(', ');\nconst orig = (o) => o ? [\n  o.nato && `Nato: ${o.nato}`,\n  o.allevato && `Allevato: ${o.allevato}`,\n  o.macellato && `Macellato: ${o.macellato}`,\n  o.sezionato && `Sezionato: ${o.sezionato}`,\n  o.rifOrigine && `Rif: ${o.rifOrigine}`,\n].filter(Boolean).join(' | ') : '';\n\nfor (const item of $input.all()) {\n  const headers = item.json.headers || {};\n  if (TOKEN && headers['x-trac-token'] !== TOKEN) {\n    throw new Error('Token non valido');\n  }\n  for (const e of (item.json.body?.eventi || [])) {\n    const d = e.dati || {};\n    const base = { evento_id: e.id, tipo: e.tipo, ts: e.ts, negozio: e.negozio || '', operatore: e.operatore || '' };\n\n    if (e.tipo === 'ricevimento') {\n      out.push({ json: { foglio: 'Ricevimenti', ...base,\n        lotto_id: d.id, prodotto: d.nome, gtin: d.gtin || '', fornitore: d.fornitore || '',\n        lotto_fornitore: d.codiceLotto || '', scadenza: d.scadenza || '', peso_kg: d.pesoKg ?? '',\n        ddt: d.ddt || '', data_arrivo: d.dataArrivo || '', temperatura: d.temperatura ?? '',\n        conforme: d.conforme ? 'SI' : 'NO', stato: d.stato, allergeni: lista(d.allergeni),\n        origine: orig(d.origine), codice_barre: d.codiceBarre || '', note: d.note || '' } });\n    } else if (e.tipo === 'produzione') {\n      out.push({ json: { foglio: 'Produzioni', ...base,\n        lotto_id: d.id, prodotto: d.nome, data_produzione: d.dataProduzione, scadenza: d.scadenza,\n        quantita: d.quantita, unita: d.unita, allergeni: lista(d.allergeni), origine: orig(d.origine),\n        componenti: (d.componenti || []).map((c) => `${c.ingrediente}: ${c.lottoId}`).join(' | '),\n        note: d.note || '' } });\n      // Una riga per componente: comoda per filtrare \"dove è finito il lotto X\"\n      for (const c of (d.componenti || [])) {\n        out.push({ json: { foglio: 'Componenti', evento_id: e.id, ts: e.ts, negozio: base.negozio,\n          lotto_prodotto: d.id, prodotto: d.nome, ingrediente: c.ingrediente,\n          lotto_ingrediente: c.lottoId, quantita: c.quantita || '' } });\n      }\n    } else if (e.tipo === 'stato_lotto') {\n      out.push({ json: { foglio: 'Movimenti', ...base, lotto_id: d.id, prodotto: d.nome || '',\n        lotto_fornitore: d.codiceLotto || '', stato: d.stato, motivo: d.motivo || '' } });\n    } else {\n      out.push({ json: { foglio: 'Eventi', ...base, dati: JSON.stringify(d) } });\n    }\n  }\n}\nreturn out;"
+      },
+      "id": "5b7d2a51-1c8e-4a43-9e0c-6a1f0c000002",
+      "name": "Prepara righe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "INCOLLA_QUI_URL_DEL_GOOGLE_SHEET"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $json.foglio }}"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "handlingExtraData": "insertInNewColumn"
+        }
+      },
+      "id": "5b7d2a51-1c8e-4a43-9e0c-6a1f0c000003",
+      "name": "Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [480, 0]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Prepara righe", "type": "main", "index": 0 }]]
+    },
+    "Prepara righe": {
+      "main": [[{ "node": "Google Sheets", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#c8102e" />
+  <title>Tracciabilità reparto</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="css/app.css" />
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.12.3/dist/JsBarcode.all.min.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a href="#lotti" class="brand">Tracciabilità</a>
+    <span class="sync" id="sync-badge" title="Stato sincronizzazione n8n"></span>
+    <a href="#impostazioni" class="icon-btn" aria-label="Impostazioni">⚙️</a>
+  </header>
+
+  <main id="view" tabindex="-1"></main>
+
+  <nav class="tabbar">
+    <a href="#ricevi" data-tab="ricevi"><span>📦</span>Ricevi</a>
+    <a href="#lotti" data-tab="lotti"><span>🧊</span>Lotti</a>
+    <a href="#produci" data-tab="produci"><span>🍳</span>Produci</a>
+    <a href="#cerca" data-tab="cerca"><span>🔎</span>Richiamo</a>
+    <a href="#ricette" data-tab="ricette"><span>📋</span>Ricette</a>
+  </nav>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="print-area"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
