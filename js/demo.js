@@ -136,7 +136,7 @@ export function creaGiornataEsempio() {
   const c = Object.fromEntries(codiciProva().map((x) => [x.prodotto.nome, x.prodotto]));
   const arrivo = (p, extra) => registraRicevimento({
     gtin: p.gtin, nome: p.nome, fornitore: p.fornitore, categoria: p.categoria, allergeni: p.allergeni,
-    dataArrivo: oggi, ddt: 'DDT 4512', temperatura: p.categoria === 'secco' ? '' : 3, conforme: true, ...extra,
+    dataArrivo: oggi, ddt: '4512', temperatura: p.categoria === 'secco' ? '' : 3, conforme: true, ...extra,
   });
   const bov = arrivo(c['Carne bovina – pezzi per macinato'], {
     codiceLotto: 'BOV-A123', scadenza: addGiorni(oggi, 10), pesoKg: 12.345,
