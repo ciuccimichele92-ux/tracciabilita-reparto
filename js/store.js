@@ -85,7 +85,23 @@ function evento(tipo, dati) {
 }
 
 // ---------- Prodotti ----------
-export function getProdotto(gtin) { return gtin ? db.prodotti[gtin] : null; }
+/**
+ * "Radice" di un GTIN senza cifra indicatore e cifra di controllo.
+ * Il cartone (GTIN-14, es. 1 8001234 56789 X) e la singola confezione (EAN-13, 8001234 56789 Y)
+ * di solito condividono le stesse 12 cifre centrali: è così che colleghiamo collo e confezione.
+ */
+export function gtinBase(gtin) {
+  const g = String(gtin || '').replace(/\D/g, '');
+  if (!g) return '';
+  return g.padStart(14, '0').slice(1, 13);
+}
+
+export function getProdotto(gtin) {
+  if (!gtin) return null;
+  if (db.prodotti[gtin]) return db.prodotti[gtin];
+  const base = gtinBase(gtin);
+  return Object.values(db.prodotti).find((p) => gtinBase(p.gtin) === base) || null;
+}
 
 export function salvaProdotto(p) {
   if (!p.gtin) return;
@@ -98,18 +114,28 @@ export function salvaProdotto(p) {
 // ---------- Lotti ----------
 export function getLotto(id) { return db.lotti.find((l) => l.id === id); }
 
-/** Cerca un lotto da un codice scansionato/digitato: id interno, lotto fornitore, SSCC. */
+/**
+ * Cerca un lotto da un codice scansionato/digitato: id interno, lotto fornitore, SSCC.
+ * Se il codice ha solo il prodotto (EAN della singola confezione, senza lotto) restituisce
+ * i lotti di quel prodotto registrati al ricevimento dal codice del cartone, in ordine FEFO.
+ */
 export function trovaLotti(codice, parsed) {
   const c = String(codice || '').trim().toUpperCase();
   const lotto = parsed?.fields?.lotto?.toUpperCase();
   const gtin = parsed?.fields?.gtin;
+  const base = gtinBase(gtin);
   const sscc = parsed?.fields?.sscc;
-  return db.lotti.filter((l) =>
+  const stessoProdotto = (l) => !gtin || !l.gtin || gtinBase(l.gtin) === base;
+  const diretti = db.lotti.filter((l) =>
     l.id.toUpperCase() === c ||
     (sscc && l.sscc === sscc) ||
-    (lotto && l.codiceLotto?.toUpperCase() === lotto && (!gtin || !l.gtin || l.gtin === gtin)) ||
+    (lotto && l.codiceLotto?.toUpperCase() === lotto && stessoProdotto(l)) ||
     (!parsed?.elements?.length && l.codiceLotto?.toUpperCase() === c)
   );
+  if (diretti.length || lotto || !base) return diretti;
+  return db.lotti
+    .filter((l) => l.gtin && gtinBase(l.gtin) === base)
+    .sort((a, b) => (a.scadenza || '9999').localeCompare(b.scadenza || '9999'));
 }
 
 export function lottiAperti() {

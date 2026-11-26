@@ -4,6 +4,7 @@ import { scanBarcode, preloadScanner, listenKeyboardWedge } from './scanner.js';
 import { etichettaHtml, renderBarcodes, stampa, origineHtml } from './labels.js';
 import { flush, testWebhook, startAutoSync, onSyncStatus, statoSync } from './sync.js';
 import { installaRicetteBase, installaCatalogoProva, creaGiornataEsempio, codiciProva } from './demo.js';
+import { cercaProdotto } from './prodotti.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -75,7 +76,39 @@ function bozzaDaScan(res) {
     prodottoNoto: !!prodotto,
   };
   if (p.type === 'testo') b.codiceLotto = res.rawValue; // es. etichetta scritta a mano / codice interno fornitore
+  // Codice senza lotto (EAN della confezione): se oggi è già arrivato un collo dello stesso
+  // prodotto, ripropone il suo lotto e la scadenza (di solito lo stesso camion ha lo stesso lotto).
+  if (!b.codiceLotto && b.gtin) {
+    const oggi = S.oggiIso();
+    const ultimo = S.getDb().lotti.filter((l) => l.tipo === 'ingresso' && l.dataArrivo === oggi
+      && S.gtinBase(l.gtin) === S.gtinBase(b.gtin)).pop();
+    if (ultimo) {
+      Object.assign(b, { codiceLotto: ultimo.codiceLotto, scadenza: b.scadenza || ultimo.scadenza, ddt: ultimo.ddt, ripresoDa: ultimo });
+    }
+  }
   return b;
+}
+
+/** Compila nome, fornitore, categoria e allergeni cercando il prodotto (codici di prova / Open Food Facts). */
+async function riconosciProdotto(b, form) {
+  if (b.nome || !b.gtin) return;
+  const stato = $('#prod-stato');
+  stato.innerHTML = '<span class="muted">🔎 Cerco il prodotto dal codice a barre…</span>';
+  const p = await cercaProdotto(b.gtin);
+  if (bozzaRicevimento !== b || !document.body.contains(form)) return; // l'utente è andato altrove
+  if (!p) {
+    stato.innerHTML = '<span class="muted">Prodotto non trovato: scrivi il nome una volta, dalla prossima scansione lo riconosce da solo.</span>';
+    return;
+  }
+  if (!form.nome.value) form.nome.value = b.nome = p.nome;
+  if (!form.fornitore.value && p.fornitore) form.fornitore.value = b.fornitore = p.fornitore;
+  if (form.categoria.value === 'altro' && p.categoria) { form.categoria.value = b.categoria = p.categoria; form.categoria.onchange?.(); }
+  const chips = $$('[data-chips] .chip', form);
+  if (!chips.some((c) => c.classList.contains('on'))) {
+    chips.forEach((c) => c.classList.toggle('on', p.allergeni.includes(c.dataset.val)));
+    b.allergeni = p.allergeni;
+  }
+  stato.innerHTML = `<span class="badge ok">✓ ${esc(p.fonte)}</span> <span class="muted">controlla e salva</span>`;
 }
 
 async function avviaScanRicevimento() {
@@ -115,6 +148,9 @@ function renderRicevi() {
     ${duplicati.length ? `<div class="alert warn">Attenzione: questo lotto risulta già registrato (${duplicati.map((d) => esc(d.id)).join(', ')}). Salva solo se è un collo in più.</div>` : ''}
     <form id="f" class="card" autocomplete="off">
       <label>Prodotto *<input name="nome" required value="${esc(b.nome)}" placeholder="es. Carne bovina – fesa" list="prodotti-noti"></label>
+      <div id="prod-stato" style="font-size:.82rem;margin:-.4rem 0 .7rem"></div>
+      ${b.ripresoDa ? `<div class="alert warn" style="font-size:.85rem">Il codice non contiene il lotto: ho ripreso lotto e scadenza dall’ultimo collo di questo prodotto arrivato oggi. Verifica che sulla confezione sia lo stesso.</div>` : ''}
+      ${b.gtin && !b.codiceLotto ? `<div class="alert warn" style="font-size:.85rem">Questo codice a barre identifica solo il prodotto: lotto e scadenza sono stampati sulla confezione. Se c’è, scansiona l’etichetta del cartone.</div>` : ''}
       <datalist id="prodotti-noti">${Object.values(S.getDb().prodotti).map((p) => `<option value="${esc(p.nome)}">`).join('')}</datalist>
       <div class="grid2">
         <label>Fornitore<input name="fornitore" value="${esc(b.fornitore)}"></label>
@@ -168,6 +204,7 @@ function renderRicevi() {
     if (p && !form.fornitore.value) form.fornitore.value = p.fornitore || '';
   };
   checkTemp();
+  riconosciProdotto(b, form);
 
   $('#annulla').onclick = () => { bozzaRicevimento = null; render(); };
   const salva = (poiScan) => {
@@ -217,8 +254,8 @@ function rigaLotto(l) {
     : `Lotto ${esc(l.codiceLotto)} · ${esc(l.fornitore || '')}${l.pesoKg ? ` · ${esc(l.pesoKg)} kg` : ''}`;
   return `<li><a href="#lotto/${encodeURIComponent(l.id)}">
     <span style="font-size:1.3rem">${l.tipo === 'produzione' ? '🍳' : '📦'}</span>
-    <span class="grow"><div class="title">${esc(l.nome)}</div><div class="sub">${sub}</div></span>
-    ${badgeScadenza(l)}</a></li>`;
+    <span class="grow"><div class="title">${esc(l.nome)}</div><div class="sub">${sub}</div>
+    <div style="margin-top:.3rem">${badgeScadenza(l)}</div></span><span class="muted">›</span></a></li>`;
 }
 
 function renderLotti() {
@@ -446,13 +483,20 @@ function renderProduci(ricettaId) {
 }
 
 function assegnaScanAIngrediente(ingrediente, raw) {
-  const trovati = S.trovaLotti(raw, parseBarcode(raw));
-  const aperto = trovati.find((l) => l.stato === 'aperto') || trovati[0];
+  const parsed = parseBarcode(raw);
+  const trovati = S.trovaLotti(raw, parsed);
+  const aperti = trovati.filter((l) => l.stato === 'aperto');
+  // FEFO: tra i lotti aperti e non scaduti, quello che scade prima
+  const aperto = aperti.find((l) => !isScaduto(l)) || aperti[0] || trovati[0];
   if (!aperto) { toast('Lotto non trovato: registralo prima in “Ricevi”.', 3500); return; }
   if (aperto.stato !== 'aperto') { toast(`Il lotto è ${aperto.stato}: non utilizzabile.`, 3500); return; }
   if (isScaduto(aperto)) { toast(`⛔ ${aperto.nome} lotto ${aperto.codiceLotto || aperto.id} è SCADUTO.`, 4000); return; }
   bozzaProd.scelte[ingrediente].lottoId = aperto.id;
-  toast(`✓ ${ingrediente}: ${aperto.nome} · ${aperto.codiceLotto || aperto.id}`);
+  // Confezione singola senza lotto nel codice: se ci sono più lotti aperti lo diciamo
+  const solaConfezione = !parsed.fields.lotto && parsed.fields.gtin && aperti.length > 1;
+  toast(solaConfezione
+    ? `✓ ${ingrediente}: lotto ${aperto.codiceLotto} (scade prima). Ci sono ${aperti.length} lotti aperti: se sulla confezione c’è un altro lotto, cambialo.`
+    : `✓ ${ingrediente}: ${aperto.nome} · ${aperto.codiceLotto || aperto.id}`, solaConfezione ? 5000 : 2600);
   render();
 }
 

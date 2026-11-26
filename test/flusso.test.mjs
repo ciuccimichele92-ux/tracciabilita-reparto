@@ -106,3 +106,23 @@ test('ricerca lotto interno dal codice a barre dell’etichetta', () => {
   const trovati = S.trovaLotti(las.id, parseBarcode(las.id));
   assert.equal(trovati[0]?.id, las.id);
 });
+
+test('confezione singola (EAN-13) collegata al lotto del cartone (GTIN-14)', async () => {
+  const { eanConfezione } = await import('../js/prodotti.js');
+  // Cartone: indicatore 1 + stesse 12 cifre della confezione
+  const ean = '8001234560072';
+  const cartone = '1' + ean.slice(0, 12);
+  const gtin14 = cartone + ((10 - ([...cartone].reverse().reduce((s, n, i) => s + n * (i % 2 === 0 ? 3 : 1), 0) % 10)) % 10);
+  assert.equal(S.gtinBase(gtin14), S.gtinBase(ean));
+  assert.equal(eanConfezione(gtin14), ean);
+  const vecchio = S.registraRicevimento({ gtin: gtin14, nome: 'Latte', codiceLotto: 'LT1', scadenza: S.addGiorni(S.oggiIso(), 2), dataArrivo: S.oggiIso() });
+  const nuovo = S.registraRicevimento({ gtin: gtin14, nome: 'Latte', codiceLotto: 'LT2', scadenza: S.addGiorni(S.oggiIso(), 6), dataArrivo: S.oggiIso() });
+  const trovati = S.trovaLotti(ean, parseBarcode(ean));
+  assert.deepEqual(trovati.map((l) => l.id), [vecchio.id, nuovo.id], 'FEFO: prima quello che scade prima');
+  assert.equal(S.getProdotto(ean)?.nome, 'Latte', 'catalogo riconosce la confezione dal cartone');
+});
+
+test('EAN senza lotti registrati non restituisce lotti di altri prodotti', () => {
+  creaGiornataEsempio();
+  assert.deepEqual(S.trovaLotti('4006381333931', parseBarcode('4006381333931')), []);
+});
